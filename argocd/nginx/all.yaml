@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-nginx
+data:  
+  nginx.conf: |
+    events {}
+    env MY_SECRET;
+    http {
+        server {
+            listen 8080;
+            location / {
+                set_by_lua $my_secret 'return os.getenv("MY_SECRET")';
+                return 200 $my_secret;
+            }
+        }
+    }
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-nginx
+#  annotations:
+#    avp.kubernetes.io/path: "secret/data/my-nginx"
+stringData:  
+#  MY_SECRET: <password>
+  MY_SECRET: <path:secret/data/my-nginx#password>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-nginx
+spec:
+  selector:
+    matchLabels:
+      app: my-nginx
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: my-nginx
+    spec:
+      serviceAccountName: default
+      automountServiceAccountToken: true
+      containers:
+      - name: my-nginx
+        image: docker.io/openresty/openresty:1.19.9.1-0-alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - secretRef:
+            name: my-nginx
+        volumeMounts:
+        - name: nginx-conf
+          mountPath: /usr/local/openresty/nginx/conf/
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: my-nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-nginx
+spec:
+  selector:
+    app: my-nginx
+  ports:
+    - protocol: TCP
+      port: 8088
+      targetPort: 8080
